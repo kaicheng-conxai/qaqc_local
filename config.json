@@ -1,0 +1,8 @@
+{
+  "workers": 4,
+  "chunkSize": 4,
+  "settleMs": 120,
+  "persistentSession": true,
+  "sessionIdleSeconds": 300,
+  "headed": true
+}

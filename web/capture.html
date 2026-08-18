@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Local Matterport 3D Backfill</title>
+    <style>
+      html, body, iframe { width: 100%; height: 100%; margin: 0; border: 0; background: #050607; }
+    </style>
+  </head>
+  <body>
+    <iframe id="showcase" allow="autoplay; fullscreen; web-share; xr-spatial-tracking;" allowfullscreen></iframe>
+    <script type="module">
+      const iframe = document.querySelector("#showcase");
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      let sdk;
+
+      async function connect() {
+        const config = await fetch("/config").then((response) => response.json());
+        iframe.src = `/bundle/showcase.html?m=${encodeURIComponent(config.modelId)}&play=1&applicationKey=${encodeURIComponent(config.sdkKey)}`;
+        await new Promise((resolve) => iframe.addEventListener("load", resolve, { once: true }));
+        sdk = await iframe.contentWindow.MP_SDK.connect(iframe.contentWindow);
+        await sdk.Sweep.current.waitUntil((sweep) => sweep?.sid);
+        return true;
+      }
+
+      async function pose() {
+        if (sdk.Camera.getPose) return sdk.Camera.getPose();
+        let latest;
+        const subscription = sdk.Camera.pose.subscribe((value) => (latest = value));
+        for (let index = 0; index < 50 && !latest?.position; index += 1) await wait(50);
+        subscription?.dispose?.();
+        return latest;
+      }
+
+      function normalize(vector) {
+        const length = Math.hypot(vector.x, vector.y, vector.z);
+        return length ? { x: vector.x / length, y: vector.y / length, z: vector.z / length } : null;
+      }
+
+      function isPoint(value) {
+        return value && ["x", "y", "z"].every((axis) => Number.isFinite(value[axis]));
+      }
+
+      window.captureAnchor = async (item, settleMs = 120) => {
+        await sdk.Sweep.moveTo(item.panoId, { rotation: item.rotation });
+        if (sdk.Camera.setRotation) await sdk.Camera.setRotation(item.rotation).catch(() => {});
+        await wait(settleMs);
+        const hit = (await sdk.Renderer.getWorldPositionData({ x: iframe.clientWidth / 2, y: iframe.clientHeight / 2 }))?.position;
+        if (!isPoint(hit)) {
+          return { skipped: true, skipReason: "No Matterport surface at the requested center point." };
+        }
+        const camera = await pose();
+        if (!isPoint(camera?.position)) {
+          return { skipped: true, skipReason: "Matterport camera position is unavailable." };
+        }
+        const normal = normalize({ x: camera.position.x - hit.x, y: camera.position.y - hit.y, z: camera.position.z - hit.z });
+        if (!normal) {
+          return { skipped: true, skipReason: "Could not calculate stemVector." };
+        }
+        return {
+          anchorPosition: hit,
+          stemVector: { x: normal.x * 0.3, y: normal.y * 0.3, z: normal.z * 0.3 },
+          surfaceNormal: normal,
+        };
+      };
+
+      window.backfillReady = connect();
+    </script>
+  </body>
+</html>

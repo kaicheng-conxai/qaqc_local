@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+.env
+web/bundle/
+.DS_Store
+*.log
+output/
+.playwright-browsers/
